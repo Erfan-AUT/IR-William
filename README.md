@@ -1,2 +1,3 @@
 # AUT-William
-The project for Information retrieval course at AUT - Spring of 2021.
+Say Hi to William.
+![Bill](https://upload.wikimedia.org/wikipedia/commons/thumb/a/a2/Shakespeare.jpg/330px-Shakespeare.jpg)
