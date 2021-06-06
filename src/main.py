@@ -38,45 +38,31 @@ class Normalization:
         self.punctuations = norm_words["punctuations"]
         self.suffixes = norm_words["suffixes"]
         self.arabic_plurals = norm_words["arabic_plurals"]
+        
+    def normalize_tokens(self, tokens: set) -> set:
+        for p in (self.prepositions + self.punctuations + self.pronouns):
+            tokens.discard(p)
 
-    def normalize(self, inv_idx: dict[str, set]):
+        new_tokens = set()
 
-        keys = list(inv_idx.keys())
+        for tkn in tokens:
+            new_token = tkn
 
-        for token in keys:
-            
-            new_token = token
-            changed = False
-            
             for pun in self.punctuations:
                 if pun in new_token:
                     new_token = new_token.replace(pun, "")
-                    changed = True
 
-            if half_space in token:
+            if half_space in new_token:
                 for suff in self.suffixes:
-                    if suff in new_token:
-                        new_token = new_token.replace(suff, "")
+                    if new_token.endswith(suff):
+                        new_token = new_token[:-len(suff)]
                 new_token = new_token.replace(half_space, "")
-                changed = True
-
-            if new_token in inv_idx.keys():
-                inv_idx[new_token] = inv_idx[new_token] | inv_idx[token]
-            else:
-                inv_idx[new_token] = inv_idx[token]
-
-            if changed:
-                inv_idx.pop(token)
-        
-    def clean_tokens(self, tokens: set) -> set:
-        for p in (self.prepositions + self.punctuations + self.pronouns):
-            tokens.discard(p)
-        new_tokens = set()
-        for tkn in tokens:
+            
             if tkn in self.arabic_plurals.keys():
-                new_tokens.add(self.arabic_plurals[tkn])
-            else:
-                new_tokens.add(tkn)
+                new_token = self.arabic_plurals[tkn]
+            
+            new_tokens.add(new_token)
+        
         return new_tokens
 
 def main():
@@ -94,16 +80,15 @@ def main():
 
     tokens = set()
     for content in data_head["content"]:
-        tokens |= normal.clean_tokens(tokenize(content))
+        tokens |= normal.normalize_tokens(tokenize(content))
 
     inv_idx = create_inv_idx(tokens, data_head)
-    normal.normalize(inv_idx)
+    # normal.normalize(inv_idx)
 
     while(True):
         in_str = input("Enter your query, !q to exit \n")
         if in_str == "!q":
             break
-
         if len(in_str.split()) == 1:
             ids = single_query(in_str, inv_idx)
         else:
