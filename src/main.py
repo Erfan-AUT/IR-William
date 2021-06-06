@@ -37,6 +37,7 @@ class Normalization:
         self.prepositions = norm_words["prepositions"]
         self.punctuations = norm_words["punctuations"]
         self.suffixes = norm_words["suffixes"]
+        self.arabic_plurals = norm_words["arabic_plurals"]
 
     def normalize(self, inv_idx: dict[str, set]):
 
@@ -70,7 +71,13 @@ class Normalization:
     def clean_tokens(self, tokens: set) -> set:
         for p in (self.prepositions + self.punctuations + self.pronouns):
             tokens.discard(p)
-        return tokens            
+        new_tokens = set()
+        for tkn in tokens:
+            if tkn in self.arabic_plurals.keys():
+                new_tokens.add(self.arabic_plurals[tkn])
+            else:
+                new_tokens.add(tkn)
+        return new_tokens
 
 def main():
 
