@@ -74,14 +74,16 @@ class Normalization:
 
 def main():
 
+    length = input("Enter the number of docs you want to search through (starts from the 1st document), m for max \n")
     print("Search engine started, wait for initialization...")
 
     data = pd.read_excel("data.xlsx")
     normal = Normalization()
 
-    data_head = data.head(50)
-
-    # print(data_head)
+    if length == "m":
+        data_head = data
+    else:
+        data_head = data.head(int(length))
 
     tokens = set()
     for content in data_head["content"]:
@@ -102,8 +104,6 @@ def main():
         
         for i in ids:
             print([i, data_head["url"][i-1]])
-        # result = {id: data_head["url"][id-1] for id in ids}
-        # print(result)
 
 
 if __name__ == "__main__":
