@@ -18,7 +18,7 @@ def create_inv_idx(tokens: set, documents: pd.DataFrame):
 def single_query(q: str, inv_idx: dict[str, set]) -> set:
     return inv_idx.get(q, set())
 
-def multi_query(q: str, inv_idx) -> list:
+def multi_query(q: str, inv_idx: dict[str, set]) -> list:
     scores = dict()
     for item in q.split():
         for id in inv_idx.get(item, set()):
@@ -87,10 +87,18 @@ def main():
     inv_idx = create_inv_idx(tokens, data_head)
     normal.normalize(inv_idx)
 
-    ids = single_query("ورزش", inv_idx)
-    result = {id: data_head["url"][id-1] for id in ids}
+    while(True):
+        in_str = input("Enter your query, !q to exit")
+        if in_str == "!q":
+            break
 
-    print(result)
+        if len(in_str.split()) == 1:
+            ids = single_query(in_str, inv_idx)
+        else:
+            ids = multi_query(in_str, inv_idx)
+        
+        result = {id: data_head["url"][id-1] for id in ids}
+        print(result)
 
 
 if __name__ == "__main__":
