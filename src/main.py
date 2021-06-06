@@ -18,7 +18,7 @@ def create_inv_idx(tokens: set, documents: pd.DataFrame):
 def single_query(q: str, inv_idx: dict[str, set]) -> set:
     return inv_idx.get(q, set())
 
-def multi_query(q: str, inv_idx: dict[str, set]) -> list:
+def multi_query(q: str, inv_idx: dict[str, set]) -> set:
     scores = dict()
     for item in q.split():
         for id in inv_idx.get(item, set()):
@@ -26,7 +26,7 @@ def multi_query(q: str, inv_idx: dict[str, set]) -> list:
                 scores[id] += 1
             else:
                 scores[id] = 1
-    return sorted(scores)
+    return {k for k, _ in sorted(scores.items(), key=lambda item: item[1])}
 
 class Normalization:
 
@@ -73,6 +73,9 @@ class Normalization:
         return tokens            
 
 def main():
+
+    print("Search engine started, wait for initialization...")
+
     data = pd.read_excel("data.xlsx")
     normal = Normalization()
 
