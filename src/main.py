@@ -88,7 +88,7 @@ def main():
     normal.normalize(inv_idx)
 
     while(True):
-        in_str = input("Enter your query, !q to exit")
+        in_str = input("Enter your query, !q to exit \n")
         if in_str == "!q":
             break
 
@@ -97,8 +97,10 @@ def main():
         else:
             ids = multi_query(in_str, inv_idx)
         
-        result = {id: data_head["url"][id-1] for id in ids}
-        print(result)
+        for i in ids:
+            print([i, data_head["url"][i-1]])
+        # result = {id: data_head["url"][id-1] for id in ids}
+        # print(result)
 
 
 if __name__ == "__main__":
