@@ -12,18 +12,20 @@ class Processing:
         self.docs = docs
         self.normal = Normalization()
         self.doc_lengths = dict()
-        self.champion_list = dict()
+        self.champions = dict()
 
         self.gen_tokens()
         self.create_inv_idx()
+        self.gen_champion_list()
 
     def gen_champion_list(self):
         for token in self.tokens:
-            self.champion_list[token] = dict()
+            self.champions[token] = dict()
             for id in self.inv_idx[token].keys():
-                self.champion_list[token][id] = self.inv_idx[token][id] / self.doc_lengths[id]
-            self.champion_list[token] = sorted(self.champion_list[token].items(), key=lambda kv: kv[1], reverse=True)           
-
+                self.champions[token][id] = self.inv_idx[token][id] / \
+                    self.doc_lengths[id]
+            self.champions[token] = {k: v for k, v in sorted(
+                self.champions[token].items(), key=lambda item: item[1], reverse=True)}
 
     def print(self):
         print(len(self.docs))
@@ -46,10 +48,10 @@ class Processing:
             self.inv_idx[token] = dict()
             for id, doc, _ in self.docs.itertuples(index=False):
                 if token in doc.split():
-                    self.inv_idx[token][id] = self.tf(token, doc)
+                    self.inv_idx[token][id-1] = self.tf(token, doc)
 
         for id, doc, _ in self.docs.itertuples(index=False):
-            self.doc_lengths[id] = self.get_doc_lengths(id, doc)
+            self.doc_lengths[id-1] = self.gen_doc_lengths(id-1, doc)
 
     def gen_doc_lengths(self, id: int, doc: str):
         # Normalize to remove useless tokens, get(id, 0) to discard non-existing terms in docs.
@@ -77,7 +79,7 @@ class Processing:
         return log2(len(self.docs) / len(self.inv_idx[term]))
 
     def tf_idf(self, term: str, doc: str):
-        return self.tf(term, doc) * self.idf(term, len(self.docs))
+        return self.tf(term, doc) * self.idf(term)
 
     def cos_similarity(self, q: str, id: int, doc: str):
         return sum([self.tf_idf(token, doc) if token in doc.split() else 0 for token in q.split()]) / self.doc_lengths[id]
@@ -85,14 +87,13 @@ class Processing:
     def gen_scores(self, q):
         scores = dict()
         for word in q.split():
-            if word in self.champion_list.keys():
-                for doc_t in self.champion_list[word]:
-                    id = doc_t[0]
-                    if id not in scores.keys():
-                        scores[id] = 0
-                    scores[id] += self.cos_similarity(word, id, self.docs['content'][id])
+            if word in self.champions.keys():
+                for champ_id in self.champions[word].keys():
+                    if champ_id not in scores.keys():
+                        scores[champ_id] = 0
+                    scores[champ_id] += self.cos_similarity(word,
+                                                      id, self.docs['content'][champ_id])
         return scores
-    
 
     def best_k(self, q, k):
         scores = self.gen_scores(q)
@@ -158,20 +159,22 @@ def main():
         data_head = data.head(int(length))
 
     p = Processing(data_head)
-    p.print()
     # normal.normalize(inv_idx)
 
     while(True):
         in_str = input("Enter your query, !q to exit \n")
         if in_str == "!q":
             break
-        if len(in_str.split()) == 1:
-            ids = p.single_query(in_str)
-        else:
-            ids = p.multi_query(in_str)
+        # if len(in_str.split()) == 1:
+        #     ids = p.single_query(in_str)
+        # else:
+        #     ids = p.multi_query(in_str)
 
-        for i in ids:
-            print([i, data_head["url"][i-1]])
+        # for i in ids:
+        #     print([i, data_head["url"][i-1]])
+
+        print('best (sorted) scores are: {}'.format(
+            p.best_k(in_str, k=min(5, len(p.gen_scores(in_str).keys())))))
 
 
 if __name__ == "__main__":
