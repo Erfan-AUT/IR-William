@@ -7,6 +7,9 @@ from heapq import heappop, heappush
 half_space = "\u200c"
 
 
+def reverse_sorted_dict(nary: dict):
+    return {k: v for k, v in sorted(nary.items(), key=lambda item: item[1], reverse=True)}
+
 class Processing:
     def __init__(self, docs: pd.DataFrame) -> None:
         self.docs = docs
@@ -24,8 +27,7 @@ class Processing:
             for id in self.inv_idx[token].keys():
                 self.champions[token][id] = self.inv_idx[token][id] / \
                     self.doc_lengths[id]
-            self.champions[token] = {k: v for k, v in sorted(
-                self.champions[token].items(), key=lambda item: item[1], reverse=True)}
+            self.champions[token] = reverse_sorted_dict(self.champions[token])
 
     def print(self):
         print(len(self.docs))
@@ -86,25 +88,31 @@ class Processing:
 
     def gen_scores(self, q):
         scores = dict()
-        for word in q.split():
-            if word in self.champions.keys():
-                for champ_id in self.champions[word].keys():
+        q_words = q.split()
+        for word, champ in self.champions.items():
+            if word in q_words:
+                for champ_id in champ.keys():
                     if champ_id not in scores.keys():
                         scores[champ_id] = 0
-                    scores[champ_id] += self.cos_similarity(word,
-                                                      id, self.docs['content'][champ_id])
-        return scores
+                    scores[champ_id] += self.cos_similarity(
+                        word, champ_id, self.docs['content'][champ_id])
 
-    def best_k(self, q, k):
-        scores = self.gen_scores(q)
-        best = dict()
+        self.scores = scores
+
+    def best_k_heap(self, k):
         heap = []
-        for id in scores.keys():
-            heappush(heap, (-scores[id], id))
+        for id, score in self.scores.items():
+            heappush(heap, (score, id))
+
+        worst = dict()
         for _ in range(k):
-            max_, best_id = heappop(heap)
-            best[best_id] = -max_
-        return best
+            score, id = heappop(heap)
+            worst[id] = score
+
+        return reverse_sorted_dict(worst)
+
+    def best_k_sort(self, k):
+        return reverse_sorted_dict(self.scores)[:k]
 
 
 class Normalization:
@@ -159,7 +167,6 @@ def main():
         data_head = data.head(int(length))
 
     p = Processing(data_head)
-    # normal.normalize(inv_idx)
 
     while(True):
         in_str = input("Enter your query, !q to exit \n")
@@ -172,9 +179,9 @@ def main():
 
         # for i in ids:
         #     print([i, data_head["url"][i-1]])
-
+        p.gen_scores(in_str)
         print('best (sorted) scores are: {}'.format(
-            p.best_k(in_str, k=min(5, len(p.gen_scores(in_str).keys())))))
+            p.best_k_heap(min(5, len(p.scores)))))
 
 
 if __name__ == "__main__":
