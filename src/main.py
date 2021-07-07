@@ -10,6 +10,7 @@ half_space = "\u200c"
 def reverse_sorted_dict(nary: dict):
     return {k: v for k, v in sorted(nary.items(), key=lambda item: item[1], reverse=True)}
 
+
 class Processing:
     def __init__(self, docs: pd.DataFrame) -> None:
         self.docs = docs
@@ -21,6 +22,7 @@ class Processing:
         self.create_inv_idx()
         self.gen_champion_list()
 
+    # Generate for each dictionary term t, the r docs of highest weight in t’s postings. (here r is all of them because we don't know k)
     def gen_champion_list(self):
         for token in self.tokens:
             self.champions[token] = dict()
@@ -29,12 +31,7 @@ class Processing:
                     self.doc_lengths[id]
             self.champions[token] = reverse_sorted_dict(self.champions[token])
 
-    def print(self):
-        print(len(self.docs))
-        for id, doc, _ in self.docs.itertuples(index=False):
-            print(id)
-            # print(doc)
-
+    # Generate and normalize tokens from input dataset
     def gen_tokens(self):
         tokens = set()
         for content in self.docs['content']:
@@ -57,11 +54,13 @@ class Processing:
 
     def gen_doc_lengths(self, id: int, doc: str):
         # Normalize to remove useless tokens, get(id, 0) to discard non-existing terms in docs.
-        return sqrt(sum([self.inv_idx[token].get(id, 0) ** 2 for token in self.normal.normalize_tokens(set(doc.split()))]))
+        return sqrt(sum([self.inv_idx[token].get(id, 0) ** 2 for token in self.normal.normalize_tokens(self.tokenize(doc))]))
 
+    # Single word query from phase 1
     def single_query(self, q: str) -> set:
         return self.inv_idx.get(q, set())
 
+    # Multi word query from phase 1
     def multi_query(self, q: str) -> set:
         scores = dict()
         for item in q.split():
@@ -86,7 +85,8 @@ class Processing:
     def cos_similarity(self, q: str, id: int, doc: str):
         return sum([self.tf_idf(token, doc) if token in doc.split() else 0 for token in q.split()]) / self.doc_lengths[id]
 
-    def gen_scores(self, q):
+    # Generate scores for each document given the query
+    def gen_scores(self, q: str):
         scores = dict()
         q_words = q.split()
         for word, champ in self.champions.items():
@@ -99,7 +99,7 @@ class Processing:
 
         self.scores = scores
 
-    def best_k_heap(self, k):
+    def best_k_heap(self, k: int):
         heap = []
         for id, score in self.scores.items():
             heappush(heap, (score, id))
@@ -111,8 +111,15 @@ class Processing:
 
         return reverse_sorted_dict(worst)
 
-    def best_k_sort(self, k):
+    def best_k_sort(self, k: int):
         return reverse_sorted_dict(self.scores)[:k]
+
+    def best_k(self, k: int, heap_or_sort=True):
+        if heap_or_sort:
+            return self.best_k_heap(k)
+        else:
+            return self.best_k_sort(k)
+
 
 
 class Normalization:
@@ -180,8 +187,9 @@ def main():
         # for i in ids:
         #     print([i, data_head["url"][i-1]])
         p.gen_scores(in_str)
-        print('best (sorted) scores are: {}'.format(
-            p.best_k_heap(min(5, len(p.scores)))))
+        k = min(5, len(p.scores))
+        print("The documents with the best scores are in this order:")
+        print(p.best_k(k, heap_or_sort=True))
 
 
 if __name__ == "__main__":
