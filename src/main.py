@@ -23,13 +23,15 @@ class Processing:
         self.gen_champion_list()
 
     # Generate for each dictionary term t, the r docs of highest weight in t’s postings. (here r is all of them because we don't know k)
-    def gen_champion_list(self):
+    def gen_champion_list(self, l=None):
         for token in self.tokens:
             self.champions[token] = dict()
             for id in self.inv_idx[token].keys():
                 self.champions[token][id] = self.inv_idx[token][id] / \
                     self.doc_lengths[id]
             self.champions[token] = reverse_sorted_dict(self.champions[token])
+            if type(l) is int:
+                self.champions[token] = self.champions[token][:l]
 
     # Generate and normalize tokens from input dataset
     def gen_tokens(self):
@@ -50,9 +52,9 @@ class Processing:
                     self.inv_idx[token][id-1] = self.tf(token, doc)
 
         for id, doc, _ in self.docs.itertuples(index=False):
-            self.doc_lengths[id-1] = self.gen_doc_lengths(id-1, doc)
+            self.doc_lengths[id-1] = self.gen_doc_length(id-1, doc)
 
-    def gen_doc_lengths(self, id: int, doc: str):
+    def gen_doc_length(self, id: int, doc: str):
         # Normalize to remove useless tokens, get(id, 0) to discard non-existing terms in docs.
         return sqrt(sum([self.inv_idx[token].get(id, 0) ** 2 for token in self.normal.normalize_tokens(self.tokenize(doc))]))
 
@@ -83,7 +85,7 @@ class Processing:
         return self.tf(term, doc) * self.idf(term)
 
     def cos_similarity(self, q: str, id: int, doc: str):
-        return sum([self.tf_idf(token, doc) if token in doc.split() else 0 for token in q.split()]) / self.doc_lengths[id]
+        return sum([self.tf_idf(term, doc) if term in doc.split() else 0 for term in q.split()]) / self.doc_lengths[id]
 
     # Generate scores for each document given the query
     def gen_scores(self, q: str):
@@ -188,7 +190,7 @@ def main():
         #     print([i, data_head["url"][i-1]])
         p.gen_scores(in_str)
         k = min(5, len(p.scores))
-        print("The documents with the best scores are in this order:")
+        print("The documents with the best scores are in this order (add +1 to the ids):")
         print(p.best_k(k, heap_or_sort=True))
 
 
