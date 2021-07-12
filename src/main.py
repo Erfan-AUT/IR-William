@@ -122,11 +122,8 @@ class Processing:
         search_area = self.champions if self.has_champion else self.inv_idx
         for q_word in q_words:
             # If query word is not in champion list, then ignore it
-            champ = search_area.get(q_word)
-            for champ_id in champ.keys():
-                if champ_id not in scores.keys():
-                    scores[champ_id] = 0
-                scores[champ_id] += self.cos_similarity(q_word, champ_id)
+            for champ_id in search_area.get(q_word, dict()).keys():
+                scores[champ_id] = scores.get(champ_id, 0) + self.cos_similarity(q_word, champ_id)
             
         self.scores = scores
 
@@ -226,7 +223,7 @@ def main():
     else:
         data_head = data.head(int(length))
 
-    p = Processing(data_head)
+    p = Processing(data_head, has_champion=False)
 
     while(True):
         in_str = input("Enter your query, !q to exit \n")
