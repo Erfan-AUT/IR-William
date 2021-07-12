@@ -2,6 +2,7 @@ import json
 import pandas as pd
 from math import log2, sqrt
 from heapq import heappop, heappush
+import time
 
 
 half_space = "\u200c"
@@ -15,12 +16,25 @@ class Processing:
     def __init__(self, docs: pd.DataFrame) -> None:
         self.docs = docs
         self.normal = Normalization()
+        print("Tokenizing docs")
+        start_time = time.time()
+        self.docs["tokens"] = docs.apply(lambda row: self.doc_tokens(row["content"], list), axis=1)
+        print("--- %s seconds ---" % (time.time() - start_time))
         self.doc_lengths = dict()
         self.champions = dict()
 
+        print("Generating tokens")
+        start_time = time.time()
         self.gen_tokens()
-        self.create_inv_idx()
+        print("--- %s seconds ---" % (time.time() - start_time))
+        print("Creating inverse index")
+        start_time = time.time()
+        self.old_inv_idx()
+        print("--- %s seconds ---" % (time.time() - start_time))
+        print("Generating champion list")
+        start_time = time.time()
         self.gen_champion_list()
+        print("--- %s seconds ---" % (time.time() - start_time))
 
     # Generate for each dictionary term t, the r docs of highest weight in t’s postings. (here r is all of them because we don't know k)
     def gen_champion_list(self, l=None):
@@ -33,15 +47,30 @@ class Processing:
             if type(l) is int:
                 self.champions[token] = self.champions[token][:l]
 
+    def doc_tokens(self, doc, tokens_type):
+        return self.normal.normalize_tokens(self.tokenize(doc, tokens_type))
+
     # Generate and normalize tokens from input dataset
     def gen_tokens(self):
-        tokens = set()
-        for content in self.docs['content']:
-            tokens |= self.normal.normalize_tokens(self.tokenize(content))
-        self.tokens = tokens
+        self.tokens = set()
+        for content in self.docs['tokens']:
+            self.tokens |= set(content)
 
-    def tokenize(self, text: str) -> set:
-        return set(text.split())
+    def tokenize(self, text: str, tokens_type):
+        return tokens_type(text.split())
+
+    def old_inv_idx(self):
+        self.inv_idx = {token: 0 for token in self.tokens}
+
+        for id, doc, _, tokens in self.docs.itertuples(index=False):
+            doc_tokens = self.doc_tokens(doc)
+
+        for token in self.tokens:
+            self.inv_idx[token] = set()
+            for id, doc, _, tokens in self.docs.itertuples(index=False):
+                if token in doc.split():
+                    self.inv_idx[token].add(id)
+
 
     def create_inv_idx(self):
         self.inv_idx = dict()
@@ -51,12 +80,12 @@ class Processing:
                 if token in doc.split():
                     self.inv_idx[token][id-1] = self.tf(token, doc)
 
-        for id, doc, _ in self.docs.itertuples(index=False):
-            self.doc_lengths[id-1] = self.gen_doc_length(id-1, doc)
+        # for id, doc, _ in self.docs.itertuples(index=False):
+            # self.doc_lengths[id-1] = self.gen_doc_length(id-1, doc)
 
     def gen_doc_length(self, id: int, doc: str):
         # Normalize to remove useless tokens, get(id, 0) to discard non-existing terms in docs.
-        return sqrt(sum([self.inv_idx[token].get(id, 0) ** 2 for token in self.normal.normalize_tokens(self.tokenize(doc))]))
+        return sqrt(sum([self.inv_idx[token].get(id, 0) ** 2 for token in self.doc_tokens(doc)]))
 
     # Single word query from phase 1
     def single_query(self, q: str) -> set:
@@ -135,11 +164,31 @@ class Normalization:
         self.suffixes = norm_words["suffixes"]
         self.arabic_plurals = norm_words["arabic_plurals"]
 
-    def normalize_tokens(self, tokens: set) -> set:
-        for p in (self.prepositions + self.punctuations + self.pronouns):
-            tokens.discard(p)
+    def add(self, collection, item):
+        if type(collection) is list:
+            collection.append(item)
+        elif type(collection) is set:
+            collection.add(item)
+        else:
+            pass
 
-        new_tokens = set()
+    def remove(self, collection, item):
+        if type(item) is list:
+            try:
+                collection.remove(item)
+            except:
+                pass
+        elif type(item) is set:
+            collection.discard(item)
+        else:
+            pass
+
+
+    def normalize_tokens(self, tokens):
+        for p in (self.prepositions + self.punctuations + self.pronouns):
+            self.remove(tokens, p)
+
+        new_tokens = type(tokens)()
 
         for tkn in tokens:
             new_token = tkn
@@ -157,7 +206,7 @@ class Normalization:
             if tkn in self.arabic_plurals.keys():
                 new_token = self.arabic_plurals[tkn]
 
-            new_tokens.add(new_token)
+            self.add(new_tokens, new_token)
 
         return new_tokens
 
@@ -168,12 +217,13 @@ def main():
         "Enter the number of docs you want to search through (starts from the 1st document), m for max \n")
     print("Search engine started, wait for initialization...")
 
-    data = pd.read_excel("data/data.xlsx")
+    data = pd.read_excel("data/phase2/data.xlsx")
 
     if length == "m":
         data_head = data
     else:
         data_head = data.head(int(length))
+
 
     p = Processing(data_head)
 
@@ -181,17 +231,14 @@ def main():
         in_str = input("Enter your query, !q to exit \n")
         if in_str == "!q":
             break
-        # if len(in_str.split()) == 1:
-        #     ids = p.single_query(in_str)
-        # else:
-        #     ids = p.multi_query(in_str)
+        
+        start_time = time.time()
 
-        # for i in ids:
-        #     print([i, data_head["url"][i-1]])
         p.gen_scores(in_str)
         k = min(5, len(p.scores))
         print("The documents with the best scores are in this order (add +1 to the ids):")
         print(p.best_k(k, heap_or_sort=True))
+        print("--- %s seconds ---" % (time.time() - start_time))
 
 
 if __name__ == "__main__":
