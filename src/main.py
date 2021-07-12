@@ -3,6 +3,7 @@ import pandas as pd
 from math import log2, sqrt
 from heapq import heappop, heappush
 import time
+from typing import Any, Union
 
 
 half_space = "\u200c"
@@ -13,28 +14,42 @@ def reverse_sorted_dict(nary: dict):
 
 
 class Processing:
-    def __init__(self, docs: pd.DataFrame) -> None:
-        self.docs = docs
+    def __init__(self, docs: pd.DataFrame, has_champion=True, load=False, load_addr=None) -> None:
         self.normal = Normalization()
+        self.doc_lengths = dict()
+        self.has_champion = has_champion
+
+        if load:
+            self.docs = pd.read_pickle(load_addr)
+        else:
+            self.docs = docs
+
         print("Tokenizing docs")
         start_time = time.time()
-        self.docs["tokens"] = docs.apply(lambda row: self.doc_tokens(row["content"], list), axis=1)
+        self.docs["idx"] = docs.apply(
+            lambda row: self.gen_doc_idx(row['content']), axis=1)
         print("--- %s seconds ---" % (time.time() - start_time))
-        self.doc_lengths = dict()
-        self.champions = dict()
 
         print("Generating tokens")
         start_time = time.time()
         self.gen_tokens()
         print("--- %s seconds ---" % (time.time() - start_time))
+
         print("Creating inverse index")
         start_time = time.time()
-        self.old_inv_idx()
+        self.create_inv_idx()
         print("--- %s seconds ---" % (time.time() - start_time))
-        print("Generating champion list")
-        start_time = time.time()
-        self.gen_champion_list()
-        print("--- %s seconds ---" % (time.time() - start_time))
+
+        if self.has_champion:
+            self.champions = dict()
+            print("Generating champion list")
+            start_time = time.time()
+            self.gen_champion_list()
+            print("--- %s seconds ---" % (time.time() - start_time))
+
+    def gen_doc_idx(self, content):
+        tokens = self.doc_tokens(content, list)
+        return {token: tokens.count(token) for token in tokens}
 
     # Generate for each dictionary term t, the r docs of highest weight in t’s postings. (here r is all of them because we don't know k)
     def gen_champion_list(self, l=None):
@@ -47,45 +62,29 @@ class Processing:
             if type(l) is int:
                 self.champions[token] = self.champions[token][:l]
 
-    def doc_tokens(self, doc, tokens_type):
+    def doc_tokens(self, doc: str, tokens_type: type):
         return self.normal.normalize_tokens(self.tokenize(doc, tokens_type))
 
     # Generate and normalize tokens from input dataset
     def gen_tokens(self):
         self.tokens = set()
-        for content in self.docs['tokens']:
-            self.tokens |= set(content)
+        for idx in self.docs['idx']:
+            self.tokens |= set(idx.keys())
 
-    def tokenize(self, text: str, tokens_type):
+    def tokenize(self, text: str, tokens_type: type):
         return tokens_type(text.split())
 
-    def old_inv_idx(self):
-        self.inv_idx = {token: 0 for token in self.tokens}
-
-        for id, doc, _, tokens in self.docs.itertuples(index=False):
-            doc_tokens = self.doc_tokens(doc)
-
-        for token in self.tokens:
-            self.inv_idx[token] = set()
-            for id, doc, _, tokens in self.docs.itertuples(index=False):
-                if token in doc.split():
-                    self.inv_idx[token].add(id)
-
-
+    # Save term frequency in inverse index
     def create_inv_idx(self):
-        self.inv_idx = dict()
-        for token in self.tokens:
-            self.inv_idx[token] = dict()
-            for id, doc, _ in self.docs.itertuples(index=False):
-                if token in doc.split():
-                    self.inv_idx[token][id-1] = self.tf(token, doc)
+        inv_idx = {token: dict() for token in self.tokens}
+        for id, _, _, idx in self.docs.itertuples(index=False):
+            for key, value in idx.items():
+                inv_idx[key][id-1] = self.tf(value)
+            self.doc_lengths[id-1] = self.gen_doc_length(idx)
+        self.inv_idx = inv_idx
 
-        # for id, doc, _ in self.docs.itertuples(index=False):
-            # self.doc_lengths[id-1] = self.gen_doc_length(id-1, doc)
-
-    def gen_doc_length(self, id: int, doc: str):
-        # Normalize to remove useless tokens, get(id, 0) to discard non-existing terms in docs.
-        return sqrt(sum([self.inv_idx[token].get(id, 0) ** 2 for token in self.doc_tokens(doc)]))
+    def gen_doc_length(self, idx: dict):
+        return sqrt(sum([value ** 2 for _, value in idx.items()]))
 
     # Single word query from phase 1
     def single_query(self, q: str) -> set:
@@ -103,31 +102,32 @@ class Processing:
         return {k for k, _ in sorted(scores.items(), key=lambda item: item[1])}
 
     # Term Frequency
-    def tf(self, term: str, doc: str) -> float:
-        return 1 + log2(doc.split().count(term))
+    def tf(self, count: int) -> float:
+        return 1 + log2(count)
 
     # Inverse Document Frequency
     def idf(self, term: str) -> float:
         return log2(len(self.docs) / len(self.inv_idx[term]))
 
-    def tf_idf(self, term: str, doc: str):
-        return self.tf(term, doc) * self.idf(term)
+    def tf_idf(self, term: str, idx: dict):
+        return self.tf(idx.get(term)) * self.idf(term)
 
-    def cos_similarity(self, q: str, id: int, doc: str):
-        return sum([self.tf_idf(term, doc) if term in doc.split() else 0 for term in q.split()]) / self.doc_lengths[id]
+    def cos_similarity(self, q_word: str, id: int):
+        return sum([self.tf_idf(q_word, self.docs['idx'][id])]) / self.doc_lengths[id]
 
     # Generate scores for each document given the query
     def gen_scores(self, q: str):
         scores = dict()
-        q_words = q.split()
-        for word, champ in self.champions.items():
-            if word in q_words:
-                for champ_id in champ.keys():
-                    if champ_id not in scores.keys():
-                        scores[champ_id] = 0
-                    scores[champ_id] += self.cos_similarity(
-                        word, champ_id, self.docs['content'][champ_id])
-
+        q_words = self.doc_tokens(q, set)
+        search_area = self.champions if self.has_champion else self.inv_idx
+        for q_word in q_words:
+            # If query word is not in champion list, then ignore it
+            champ = search_area.get(q_word)
+            for champ_id in champ.keys():
+                if champ_id not in scores.keys():
+                    scores[champ_id] = 0
+                scores[champ_id] += self.cos_similarity(q_word, champ_id)
+            
         self.scores = scores
 
     def best_k_heap(self, k: int):
@@ -151,7 +151,10 @@ class Processing:
         else:
             return self.best_k_sort(k)
 
+    def save(self, addr):
+        self.docs.to_pickle(addr)
 
+ListSet = Union[list, set]
 
 class Normalization:
 
@@ -164,7 +167,7 @@ class Normalization:
         self.suffixes = norm_words["suffixes"]
         self.arabic_plurals = norm_words["arabic_plurals"]
 
-    def add(self, collection, item):
+    def add(self, collection: ListSet, item: Any):
         if type(collection) is list:
             collection.append(item)
         elif type(collection) is set:
@@ -172,7 +175,7 @@ class Normalization:
         else:
             pass
 
-    def remove(self, collection, item):
+    def remove(self, collection: ListSet, item: Any):
         if type(item) is list:
             try:
                 collection.remove(item)
@@ -183,8 +186,7 @@ class Normalization:
         else:
             pass
 
-
-    def normalize_tokens(self, tokens):
+    def normalize_tokens(self, tokens: ListSet):
         for p in (self.prepositions + self.punctuations + self.pronouns):
             self.remove(tokens, p)
 
@@ -224,20 +226,20 @@ def main():
     else:
         data_head = data.head(int(length))
 
-
     p = Processing(data_head)
 
     while(True):
         in_str = input("Enter your query, !q to exit \n")
         if in_str == "!q":
             break
-        
+
         start_time = time.time()
 
         p.gen_scores(in_str)
         k = min(5, len(p.scores))
         print("The documents with the best scores are in this order (add +1 to the ids):")
         print(p.best_k(k, heap_or_sort=True))
+        print("Querying took:")
         print("--- %s seconds ---" % (time.time() - start_time))
 
 
