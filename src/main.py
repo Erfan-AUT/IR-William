@@ -276,6 +276,30 @@ class Clustering:
         self.p.docs.drop('tmp_cl', inplace=True)
         return min(sim, key=sim.get)
 
+    def search_docs(self, q: str, search_area: list):
+        scores = dict()
+        q_words = self.p.doc_tokens(q, set)
+        for center in search_area:
+            for q_word in q_words:
+                scores[center] = scores.get(
+                    center, 0) + self.p.word_cos_similarity(q_word, center)
+        return scores
+
+    def query(self, q, b=2):
+        
+        cluster_scores = self.search_docs(q, self.cluster_centers)
+
+        relevant_centers = reverse_sorted_dict(cluster_scores)[:b]
+        relevant_clusters = [self.clusters[self.cluster_centers.index(center)] for center in relevant_centers]
+        relevant_docs = [self.p.docs[id] for clust in relevant_clusters for id in clust]
+
+        scores = self.search_docs(q, relevant_docs)
+        return scores
+
+
+
+            
+
 
 ListSet = Union[list, set]
 
