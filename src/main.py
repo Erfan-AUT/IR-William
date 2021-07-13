@@ -13,6 +13,43 @@ def reverse_sorted_dict(nary: dict):
     return {k: v for k, v in sorted(nary.items(), key=lambda item: item[1], reverse=True)}
 
 
+class Clustering:
+    def __init__(self):
+        self.data = data
+        self.clusters = {}
+        self.cluster_count = 0
+        self.cluster_distances = {}
+        self.cluster_centers = {}
+    
+    # K-means clustering on a given data set in the form of dictionaries
+    def k_means(self):       
+        self.cluster_centers = 
+        # Calculate the distance between each point and each cluster center
+        for i in range(len(self.data)):       
+            for j in range(self.cluster_count):       
+                self.cluster_distances[j] = self.calculate_distance(self.data[i], self.cluster_centers[j])       
+            # Find the smallest distance and assign the point to that cluster       
+            self.clusters[min(self.cluster_distances, key=self.cluster_distances.get)] = self.clusters.get(min(self.cluster_distances, key=self.cluster_distances.get), [])       
+            self.clusters[min(self.cluster_distances, key=self.cluster_distances.get)].append(i)       
+            # Calculate the new cluster center       
+            for j in range(self.cluster_count):       
+                self.cluster_centers[j] = self.calculate_center(self.clusters[j])       
+        # Calculate the average distance between each point and its cluster center       
+        for i in range(len(self.data)):       
+            for j in range(self.cluster_count):       
+                self.cluster_distances[j] = self.calculate_distance(self.data[i], self.cluster_centers[j])       
+        return self.clusters, self.cluster_distances, self.cluster_centers
+
+    # Calculating the distance between a point and a cluster center
+    def calculate_distance(self, point: dict, center: dict) -> float:
+        distance = 0.0
+        for key in point:
+            distance += (point[key] - center[key]) ** 2
+        return sqrt(distance)
+
+
+
+
 class Processing:
     def __init__(self, docs: pd.DataFrame, has_champion=True, load=False, load_addr=None) -> None:
         self.normal = Normalization()
