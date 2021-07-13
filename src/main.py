@@ -13,41 +13,61 @@ def reverse_sorted_dict(nary: dict):
     return {k: v for k, v in sorted(nary.items(), key=lambda item: item[1], reverse=True)}
 
 
-class Clustering:
+class Normalization:
+
     def __init__(self):
-        self.data = data
-        self.clusters = {}
-        self.cluster_count = 0
-        self.cluster_distances = {}
-        self.cluster_centers = {}
-    
-    # K-means clustering on a given data set in the form of dictionaries
-    def k_means(self):       
-        self.cluster_centers = 
-        # Calculate the distance between each point and each cluster center
-        for i in range(len(self.data)):       
-            for j in range(self.cluster_count):       
-                self.cluster_distances[j] = self.calculate_distance(self.data[i], self.cluster_centers[j])       
-            # Find the smallest distance and assign the point to that cluster       
-            self.clusters[min(self.cluster_distances, key=self.cluster_distances.get)] = self.clusters.get(min(self.cluster_distances, key=self.cluster_distances.get), [])       
-            self.clusters[min(self.cluster_distances, key=self.cluster_distances.get)].append(i)       
-            # Calculate the new cluster center       
-            for j in range(self.cluster_count):       
-                self.cluster_centers[j] = self.calculate_center(self.clusters[j])       
-        # Calculate the average distance between each point and its cluster center       
-        for i in range(len(self.data)):       
-            for j in range(self.cluster_count):       
-                self.cluster_distances[j] = self.calculate_distance(self.data[i], self.cluster_centers[j])       
-        return self.clusters, self.cluster_distances, self.cluster_centers
+        with open("data/words.json", encoding="utf-8") as f:
+            norm_words = json.load(f)
+        self.pronouns = norm_words["pronouns"]
+        self.prepositions = norm_words["prepositions"]
+        self.punctuations = norm_words["punctuations"]
+        self.suffixes = norm_words["suffixes"]
+        self.arabic_plurals = norm_words["arabic_plurals"]
 
-    # Calculating the distance between a point and a cluster center
-    def calculate_distance(self, point: dict, center: dict) -> float:
-        distance = 0.0
-        for key in point:
-            distance += (point[key] - center[key]) ** 2
-        return sqrt(distance)
+    def add(self, collection: ListSet, item: Any):
+        if type(collection) is list:
+            collection.append(item)
+        elif type(collection) is set:
+            collection.add(item)
+        else:
+            pass
 
+    def remove(self, collection: ListSet, item: Any):
+        if type(item) is list:
+            try:
+                collection.remove(item)
+            except:
+                pass
+        elif type(item) is set:
+            collection.discard(item)
+        else:
+            pass
 
+    def normalize_tokens(self, tokens: ListSet):
+        for p in (self.prepositions + self.punctuations + self.pronouns):
+            self.remove(tokens, p)
+
+        new_tokens = type(tokens)()
+
+        for tkn in tokens:
+            new_token = tkn
+
+            for pun in self.punctuations:
+                if pun in new_token:
+                    new_token = new_token.replace(pun, "")
+
+            if half_space in new_token:
+                for suff in self.suffixes:
+                    if new_token.endswith(suff):
+                        new_token = new_token[:-len(suff)]
+                new_token = new_token.replace(half_space, "")
+
+            if tkn in self.arabic_plurals.keys():
+                new_token = self.arabic_plurals[tkn]
+
+            self.add(new_tokens, new_token)
+
+        return new_tokens
 
 
 class Processing:
@@ -116,8 +136,8 @@ class Processing:
         inv_idx = {token: dict() for token in self.tokens}
         for id, _, _, idx in self.docs.itertuples(index=False):
             for key, value in idx.items():
-                inv_idx[key][id-1] = self.tf(value)
-            self.doc_lengths[id-1] = self.gen_doc_length(idx)
+                inv_idx[key][id] = self.tf(value)
+            self.doc_lengths[id] = self.gen_doc_length(idx)
         self.inv_idx = inv_idx
 
     def gen_doc_length(self, idx: dict):
@@ -149,8 +169,17 @@ class Processing:
     def tf_idf(self, term: str, idx: dict):
         return self.tf(idx.get(term)) * self.idf(term)
 
-    def cos_similarity(self, q_word: str, id: int):
-        return sum([self.tf_idf(q_word, self.docs['idx'][id])]) / self.doc_lengths[id]
+    def word_cos_similarity(self, q_word: str, id: int):
+        return self.tf_idf(q_word, self.docs['idx'][id]) / self.doc_lengths[id]
+
+    def doc_tf_idf(self, term: str, id1: int, id2: int):
+        return self.idf(term) * self.docs['idx'][id1][term] * self.docs['idx'][id2][term]
+
+    def doc_cos_similarity(self, id1: int, id2: int):
+        k1 = set(self.docs['idx'][id1].keys())
+        k2 = set(self.docs['idx'][id2].keys())
+        keys = k1 & k2
+        return sum([self.doc_tf_idf(k, id1, id2) for k in keys]) / (self.doc_lengths[id1] * self.doc_lengths[id2])
 
     # Generate scores for each document given the query
     def gen_scores(self, q: str):
@@ -160,8 +189,9 @@ class Processing:
         for q_word in q_words:
             # If query word is not in champion list, then ignore it
             for champ_id in search_area.get(q_word, dict()).keys():
-                scores[champ_id] = scores.get(champ_id, 0) + self.cos_similarity(q_word, champ_id)
-            
+                scores[champ_id] = scores.get(
+                    champ_id, 0) + self.word_cos_similarity(q_word, champ_id)
+
         self.scores = scores
 
     def best_k_heap(self, k: int):
@@ -188,63 +218,66 @@ class Processing:
     def save(self, addr):
         self.docs.to_pickle(addr)
 
+
+class Clustering:
+    def __init__(self, p: Processing, cluster_count: int):
+        self.p = p
+        self.clusters = {}
+        self.cluster_count = cluster_count
+        self.cluster_distances = {}
+        self.cluster_centers = {}
+
+    # K-means clustering on a given data set in the form of dictionaries
+    def k_means(self, max_iter=100):
+        self.cluster_centers = self.p.docs.sample(n=self.cluster_count)
+        data = self.p.docs['id']
+
+        for _ in range(max_iter):
+            # Calculate the distance between each point and each cluster center
+            for i in range(len(data)):
+                for j in range(self.cluster_count):
+                    self.cluster_distances[j] = self.calculate_distance(
+                        data[i], self.cluster_centers[j])
+                # Find the smallest distance and assign the point to that cluster
+                self.clusters[min(self.cluster_distances, key=self.cluster_distances.get)] = self.clusters.get(
+                    min(self.cluster_distances, key=self.cluster_distances.get), [])
+                self.clusters[min(self.cluster_distances,
+                                  key=self.cluster_distances.get)].append(i)
+                # Calculate the new cluster center
+                for j in range(self.cluster_count):
+                    self.cluster_centers[j] = self.calculate_center(
+                        self.clusters[j])
+            # Calculate the average distance between each point and its cluster center
+            for i in range(len(data)):
+                for j in range(self.cluster_count):
+                    self.cluster_distances[j] = self.calculate_distance(
+                        self.data[i], self.cluster_centers[j])
+
+        # return self.clusters, self.cluster_distances, self.cluster_centers
+
+    # Calculating the distance between a point and a cluster center
+    def calculate_distance(self, point, center) -> float:
+        return 1 / self.p.doc_cos_similarity(point, center)
+
+    # Finds the document with the least distance to the average of the cluster
+    def calculate_center(self, cluster) -> str:
+        acc = dict()
+        for id in cluster:
+            for word in self.p.docs['idx'][id].keys():
+                acc[word] = acc.get(word, 0) + \
+                    self.p.docs['idx'][id][word] / len(cluster)
+
+        self.p.docs.loc['tmp_cl'] = ['tmp_cl', '', '', acc]
+
+        sim = dict()
+        for id in cluster:
+            sim[id] = self.calculate_distance(id, 'tmp_cl')
+
+        self.p.docs.drop('tmp_cl', inplace=True)
+        return min(sim, key=sim.get)
+
+
 ListSet = Union[list, set]
-
-class Normalization:
-
-    def __init__(self):
-        with open("data/words.json", encoding="utf-8") as f:
-            norm_words = json.load(f)
-        self.pronouns = norm_words["pronouns"]
-        self.prepositions = norm_words["prepositions"]
-        self.punctuations = norm_words["punctuations"]
-        self.suffixes = norm_words["suffixes"]
-        self.arabic_plurals = norm_words["arabic_plurals"]
-
-    def add(self, collection: ListSet, item: Any):
-        if type(collection) is list:
-            collection.append(item)
-        elif type(collection) is set:
-            collection.add(item)
-        else:
-            pass
-
-    def remove(self, collection: ListSet, item: Any):
-        if type(item) is list:
-            try:
-                collection.remove(item)
-            except:
-                pass
-        elif type(item) is set:
-            collection.discard(item)
-        else:
-            pass
-
-    def normalize_tokens(self, tokens: ListSet):
-        for p in (self.prepositions + self.punctuations + self.pronouns):
-            self.remove(tokens, p)
-
-        new_tokens = type(tokens)()
-
-        for tkn in tokens:
-            new_token = tkn
-
-            for pun in self.punctuations:
-                if pun in new_token:
-                    new_token = new_token.replace(pun, "")
-
-            if half_space in new_token:
-                for suff in self.suffixes:
-                    if new_token.endswith(suff):
-                        new_token = new_token[:-len(suff)]
-                new_token = new_token.replace(half_space, "")
-
-            if tkn in self.arabic_plurals.keys():
-                new_token = self.arabic_plurals[tkn]
-
-            self.add(new_tokens, new_token)
-
-        return new_tokens
 
 
 def main():
@@ -253,12 +286,18 @@ def main():
         "Enter the number of docs you want to search through (starts from the 1st document), m for max \n")
     print("Search engine started, wait for initialization...")
 
-    data = pd.read_excel("data/phase2/data.xlsx")
+    data1 = pd.read_excel("data/phase3/1.xlsx")
+    data2 = pd.read_excel("data/phase3/2.xlsx")
+    data3 = pd.read_excel("data/phase3/3.xlsx")
+
+    data = pd.concat([data1, data2, data3])
 
     if length == "m":
         data_head = data
     else:
         data_head = data.head(int(length))
+
+    data_head['id'] -= 1
 
     p = Processing(data_head, has_champion=False)
 
