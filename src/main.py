@@ -8,6 +8,7 @@ from sklearn.model_selection import KFold
 
 
 half_space = "\u200c"
+ListSet = Union[list, set]
 
 
 def reverse_sorted_dict(nary: dict):
@@ -81,28 +82,29 @@ class Processing:
             self.docs = pd.read_pickle(load_addr)
         else:
             self.docs = docs
-        
+
         if length == "m":
             pass
         else:
-            self.docs = self.docs.head(int(length))
+            self.docs = self.docs.sample(int(length))
+            # self.docs = self.docs.head(int(length))
 
         self.docs['id'] -= 1
 
         print("Tokenizing docs")
         start_time = time.time()
-        self.docs["idx"] = docs.apply(
+        self.docs["idx"] = self.docs.apply(
             lambda row: self.gen_doc_idx(row['content']), axis=1)
         print("--- %s seconds ---" % (time.time() - start_time))
 
         if 'topic' not in self.docs.columns:
             self.docs['topic'] = ''
-        
+
         # Inferred Category
         self.docs['i_cat'] = ''
 
         # Sort columns to be compliant with the previous code
-        self.docs = self.docs[['id', 'content', 'url', 'idx', 'topic']]
+        self.docs = self.docs[['id', 'content', 'url', 'idx', 'topic', 'i_cat']]
 
         print("Generating tokens")
         start_time = time.time()
@@ -196,7 +198,7 @@ class Processing:
         k1 = set(self.docs['idx'][id1].keys())
         k2 = set(self.docs['idx'][id2].keys())
         keys = k1 & k2
-        return sum([self.doc_tf_idf(k, id1, id2) for k in keys]) / (self.doc_lengths[id1] * self.doc_lengths[id2])
+        return sum([self.doc_tf_idf(k, id1, id2) for k in keys]) / (self.doc_lengths[id1] * self.doc_lengths[id2]) + 1
 
     # Generate scores for each document given the query
     def gen_scores(self, q: str):
@@ -327,7 +329,7 @@ class Clustering:
             # 3.1 Calculate the distance between the query example and the current
             # example from the data.
             distance = self.calculate_distance(id, query_id)
-            
+
             # 3.2 Add the distance and the index of the example to an ordered collection
             neighbor_distances[id] = distance
 
@@ -336,37 +338,40 @@ class Clustering:
         sorted_neighbor_distances = reverse_sorted_dict(neighbor_distances)
 
         # 5. Pick the first K entries from the sorted collection
-        k_nearest_distances = sorted_neighbor_distances[:k]
+        first_k_keys = list(sorted_neighbor_distances.keys())[:k]
+        k_nearest_distances = {key: sorted_neighbor_distances[key] for key in first_k_keys}
+        # k_nearest_distances = sorted_neighbor_distances[:k]
 
         # 6. Get the labels of the selected K entries
-        k_nearest_labels = [data[i]['topic'] for _, i in k_nearest_distances]
+        k_nearest_labels = [self.p3.docs['topic'][i] for i in k_nearest_distances.keys()]
 
         # 7. If regression (choice_fn = mean), return the average of the K labels
         # 8. If classification (choice_fn = mode), return the mode of the K labels
         return choice_fn(k_nearest_labels)
 
     def knn_learning(self):
-        k_fold = KFold(10, True, 1)
+        k_fold = KFold(10, shuffle=True, random_state=1)
         k_scores = dict()
         k = 0
-        for train, test in k_fold.split(self.p3.docs):
+        for train_ids, test_ids in k_fold.split(self.p3.docs):
             k += 1
+            train = self.p3.docs.iloc[train_ids]
+            test = self.p3.docs.iloc[test_ids]
             for id in test['id']:
+                # self.p3.docs.iloc[id]['i_cat'] = self.knn_iteration(train_ids, id, k=k)
                 test['i_cat'][id] = self.knn_iteration(train['id'], id, k=k)
-            k_scores[k] = len(train[train['topic'] == train['i_cat']]) / len(train)
+            k_scores[k] = len(
+                train[train['topic'] == train['i_cat']]) / len(train)
             test['i_cat'] = ''
 
         self.k = max(k_scores, key=k_scores.get)
 
     def knn_classification(self):
         for id in self.p2.docs['id']:
-            self.p2.docs['i_cat'][id] = self.knn_iteration(self.p3.docs['id'], id, self.k)
-        self.p2.save_docs() 
-
-
-
-
-ListSet = Union[list, set]
+            self.p2.docs['i_cat'][id] = self.knn_iteration(
+                self.p3.docs['id'], id, self.k)
+        self.p2.docs.to_excel("phase2_knn.xlsx")
+        self.p2.save("phase2_knn.pickle")
 
 
 def main():
@@ -381,7 +386,7 @@ def main():
 
     data = pd.concat([data1, data2, data3])
     p3 = Processing(data, length=length, has_champion=False)
-    
+
     data = pd.read_excel("data/phase3/data.xlsx")
     p2 = Processing(data, length=length, has_champion=False)
 
@@ -402,5 +407,24 @@ def main():
         print("--- %s seconds ---" % (time.time() - start_time))
 
 
+def main_2():
+    length = 100
+    data1 = pd.read_excel("data/phase3/1.xlsx")
+    data2 = pd.read_excel("data/phase3/2.xlsx")
+    data3 = pd.read_excel("data/phase3/3.xlsx")
+
+    data = pd.concat([data1, data2, data3])
+    p3 = Processing(data, length=length, has_champion=False)
+
+    data = pd.read_excel("data/phase2/data.xlsx")
+    p2 = Processing(data, length=length, has_champion=False)
+
+    c = Clustering(p3=p3, p2=p2)
+
+    c.knn_learning()
+    c.knn_classification()
+    print(c.k)
+
+
 if __name__ == "__main__":
-    main()
+    main_2()
