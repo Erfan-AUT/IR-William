@@ -11,8 +11,8 @@ half_space = "\u200c"
 ListSet = Union[list, set]
 
 
-def reverse_sorted_dict(nary: dict):
-    return {k: v for k, v in sorted(nary.items(), key=lambda item: item[1], reverse=True)}
+def reverse_sorted_dict(nary: dict, reverse=True):
+    return {k: v for k, v in sorted(nary.items(), key=lambda item: item[1], reverse=reverse)}
 
 
 class Normalization:
@@ -184,7 +184,10 @@ class Processing:
 
     # Inverse Document Frequency
     def idf(self, term: str) -> float:
-        return log2(len(self.docs) / len(self.inv_idx[term]))
+        try:
+            return log2(len(self.docs) / len(self.inv_idx[term]))
+        except:
+            return 0
 
     def tf_idf(self, term: str, idx: dict):
         return self.tf(idx.get(term)) * self.idf(term)
@@ -340,7 +343,7 @@ class Clustering:
 
         # 4. Sort the ordered collection of distances and indices from
         # smallest to largest (in ascending order) by the distances
-        sorted_neighbor_distances = reverse_sorted_dict(neighbor_distances)
+        sorted_neighbor_distances = reverse_sorted_dict(neighbor_distances, reverse=False)
 
         # 5. Pick the first K entries from the sorted collection
         first_k_keys = list(sorted_neighbor_distances.keys())[:k]
@@ -369,10 +372,13 @@ class Clustering:
                 test['i_cat'][id] = self.knn_iteration(
                     self.p3, self.p3, train['id'], id, k=k)
             k_scores[k] = len(
-                train[train['topic'] == train['i_cat']]) / len(train)
+                test[test['topic'] == test['i_cat']])
+            
+            test.to_excel("learning" + str(k) + ".xlsx")
             test['i_cat'] = ''
 
         self.k = max(k_scores, key=k_scores.get)
+        print(k_scores)
 
     def knn_classification(self):
         for id in self.p2.docs['id']:
@@ -416,7 +422,7 @@ def main():
 
 
 def main_2():
-    length = 100
+    length = 200
     data1 = pd.read_excel("data/phase3/1.xlsx")
     data2 = pd.read_excel("data/phase3/2.xlsx")
     data3 = pd.read_excel("data/phase3/3.xlsx")
