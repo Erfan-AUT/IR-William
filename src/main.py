@@ -104,7 +104,8 @@ class Processing:
         self.docs['i_cat'] = ''
 
         # Sort columns to be compliant with the previous code
-        self.docs = self.docs[['id', 'content', 'url', 'idx', 'topic', 'i_cat']]
+        self.docs = self.docs[['id', 'content',
+                               'url', 'idx', 'topic', 'i_cat']]
 
         print("Generating tokens")
         start_time = time.time()
@@ -343,11 +344,13 @@ class Clustering:
 
         # 5. Pick the first K entries from the sorted collection
         first_k_keys = list(sorted_neighbor_distances.keys())[:k]
-        k_nearest_distances = {key: sorted_neighbor_distances[key] for key in first_k_keys}
+        k_nearest_distances = {
+            key: sorted_neighbor_distances[key] for key in first_k_keys}
         # k_nearest_distances = sorted_neighbor_distances[:k]
 
         # 6. Get the labels of the selected K entries
-        k_nearest_labels = [self.p3.docs['topic'][i] for i in k_nearest_distances.keys()]
+        k_nearest_labels = [self.p3.docs['topic'][i]
+                            for i in k_nearest_distances.keys()]
 
         # 7. If regression (choice_fn = mean), return the average of the K labels
         # 8. If classification (choice_fn = mode), return the mode of the K labels
@@ -363,7 +366,8 @@ class Clustering:
             test = self.p3.docs.iloc[test_ids]
             for id in test['id']:
                 # self.p3.docs.iloc[id]['i_cat'] = self.knn_iteration(train_ids, id, k=k)
-                test['i_cat'][id] = self.knn_iteration(self.p3, self.p3, train['id'], id, k=k)
+                test['i_cat'][id] = self.knn_iteration(
+                    self.p3, self.p3, train['id'], id, k=k)
             k_scores[k] = len(
                 train[train['topic'] == train['i_cat']]) / len(train)
             test['i_cat'] = ''
@@ -372,8 +376,8 @@ class Clustering:
 
     def knn_classification(self):
         for id in self.p2.docs['id']:
-            self.p2.docs['i_cat'][id] = self.knn_iteration(self.p3, self.p2
-                self.p3.docs['id'], id, self.k)
+            self.p2.docs['i_cat'][id] = self.knn_iteration(self.p3, self.p2,
+                                                           self.p3.docs['id'], id, self.k)
         self.p2.docs.to_excel("phase2_knn.xlsx")
         self.p2.save("phase2_knn.pickle")
 
