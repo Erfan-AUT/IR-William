@@ -191,14 +191,14 @@ class Processing:
     def word_cos_similarity(self, q_word: str, id: int):
         return self.tf_idf(q_word, self.docs['idx'][id]) / self.doc_lengths[id]
 
-    def doc_tf_idf(self, term: str, id1: int, id2: int):
-        return self.idf(term) * self.docs['idx'][id1][term] * self.docs['idx'][id2][term]
+    def doc_tf_idf(self, term: str, id1: int, id2: int, p1, p2):
+        return self.idf(term) * p1.docs['idx'][id1][term] * p2.docs['idx'][id2][term]
 
-    def doc_cos_similarity(self, id1: int, id2: int):
-        k1 = set(self.docs['idx'][id1].keys())
-        k2 = set(self.docs['idx'][id2].keys())
+    def doc_cos_similarity(self, id1: int, id2: int, p1, p2):
+        k1 = set(p1.docs['idx'][id1].keys())
+        k2 = set(p2.docs['idx'][id2].keys())
         keys = k1 & k2
-        return sum([self.doc_tf_idf(k, id1, id2) for k in keys]) / (self.doc_lengths[id1] * self.doc_lengths[id2]) + 1
+        return sum([self.doc_tf_idf(k, id1, id2, p1, p2) for k in keys]) / (p1.doc_lengths[id1] * p2.doc_lengths[id2]) + 1
 
     # Generate scores for each document given the query
     def gen_scores(self, q: str):
@@ -276,8 +276,12 @@ class Clustering:
         # return self.clusters, self.cluster_distances, self.cluster_centers
 
     # Calculating the distance between a point and a cluster center
-    def calculate_distance(self, point, center) -> float:
-        return 1 / self.p3.doc_cos_similarity(point, center)
+    def calculate_distance(self, point, center, p1=None, p2=None) -> float:
+        if p1 is None:
+            p1 = self
+        if p2 is None:
+            p2 = self
+        return 1 / self.p3.doc_cos_similarity(point, center, p1, p2)
 
     # Finds the document with the least distance to the average of the cluster
     def calculate_center(self, cluster) -> str:
@@ -321,14 +325,14 @@ class Clustering:
     # def query_knn(self, cat, q):
 
     # This function performs knn classification algorithm on the given data set.
-    def knn_iteration(self, data: pd.DataFrame, query_id, k, choice_fn=lambda x: max(x, key=x.count)):
+    def knn_iteration(self, p1, p2, data: pd.DataFrame, query_id, k, choice_fn=lambda x: max(x, key=x.count)):
         neighbor_distances = dict()
 
         # 3. For each example in the data
         for id in data:
             # 3.1 Calculate the distance between the query example and the current
             # example from the data.
-            distance = self.calculate_distance(id, query_id)
+            distance = self.calculate_distance(id, query_id, p1, p2)
 
             # 3.2 Add the distance and the index of the example to an ordered collection
             neighbor_distances[id] = distance
@@ -359,7 +363,7 @@ class Clustering:
             test = self.p3.docs.iloc[test_ids]
             for id in test['id']:
                 # self.p3.docs.iloc[id]['i_cat'] = self.knn_iteration(train_ids, id, k=k)
-                test['i_cat'][id] = self.knn_iteration(train['id'], id, k=k)
+                test['i_cat'][id] = self.knn_iteration(self.p3, self.p3, train['id'], id, k=k)
             k_scores[k] = len(
                 train[train['topic'] == train['i_cat']]) / len(train)
             test['i_cat'] = ''
@@ -368,7 +372,7 @@ class Clustering:
 
     def knn_classification(self):
         for id in self.p2.docs['id']:
-            self.p2.docs['i_cat'][id] = self.knn_iteration(
+            self.p2.docs['i_cat'][id] = self.knn_iteration(self.p3, self.p2
                 self.p3.docs['id'], id, self.k)
         self.p2.docs.to_excel("phase2_knn.xlsx")
         self.p2.save("phase2_knn.pickle")
