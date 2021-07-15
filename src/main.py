@@ -4,7 +4,14 @@ from math import log2, sqrt
 from heapq import heappop, heappush
 import time
 from typing import Any, Union
+import pickle
 from sklearn.model_selection import KFold
+import re
+import ast
+
+
+import warnings
+warnings.filterwarnings("ignore")
 
 
 half_space = "\u200c"
@@ -79,7 +86,8 @@ class Processing:
         self.has_champion = has_champion
 
         if load:
-            self.docs = pd.read_pickle(load_addr)
+            self.docs = pd.read_excel(load_addr)
+            # self.docs = pd.read_pickle(load_addr)
         else:
             self.docs = docs
 
@@ -91,21 +99,22 @@ class Processing:
 
         self.docs['id'] -= 1
 
-        print("Tokenizing docs")
-        start_time = time.time()
-        self.docs["idx"] = self.docs.apply(
-            lambda row: self.gen_doc_idx(row['content']), axis=1)
-        print("--- %s seconds ---" % (time.time() - start_time))
+        if not load:
+            print("Tokenizing docs")
+            start_time = time.time()
+            self.docs["idx"] = self.docs.apply(
+                lambda row: self.gen_doc_idx(row['content']), axis=1)
+            print("--- %s seconds ---" % (time.time() - start_time))
 
-        if 'topic' not in self.docs.columns:
-            self.docs['topic'] = ''
+            if 'topic' not in self.docs.columns:
+                self.docs['topic'] = ''
 
-        # Inferred Category
-        self.docs['i_cat'] = ''
+            # Inferred Category
+            self.docs['i_cat'] = ''
 
-        # Sort columns to be compliant with the previous code
-        self.docs = self.docs[['id', 'content',
-                               'url', 'idx', 'topic', 'i_cat']]
+            # Sort columns to be compliant with the previous code
+            self.docs = self.docs[['id', 'content',
+                                'url', 'idx', 'topic', 'i_cat']]
 
         print("Generating tokens")
         start_time = time.time()
@@ -196,11 +205,14 @@ class Processing:
         return self.tf_idf(q_word, self.docs['idx'][id]) / self.doc_lengths[id]
 
     def doc_tf_idf(self, term: str, id1: int, id2: int, p1, p2):
-        return self.idf(term) * p1.docs['idx'][id1][term] * p2.docs['idx'][id2][term]
+        return self.idf(term) * p1.docs.iloc[id1]['idx'][term] * p2.docs.iloc[id2]['idx'][term]
+
+    def clean_up_idx(self, p, id):
+        p.docs['idx'][id] = ast.literal_eval(re.search('({.+})', str(p.docs['idx'][id])).group(0))
 
     def doc_cos_similarity(self, id1: int, id2: int, p1, p2):
-        k1 = set(p1.docs['idx'][id1].keys())
-        k2 = set(p2.docs['idx'][id2].keys())
+        k1 = set(p1.docs.iloc[id1]['idx'].keys())
+        k2 = set(p1.docs.iloc[id2]['idx'].keys())
         keys = k1 & k2
         return sum([self.doc_tf_idf(k, id1, id2, p1, p2) for k in keys]) / (p1.doc_lengths[id1] * p2.doc_lengths[id2]) + 1
 
@@ -239,7 +251,7 @@ class Processing:
             return self.best_k_sort(k)
 
     def save(self, addr):
-        self.docs.to_pickle(addr)
+        self.docs.to_excel(addr)
 
 
 class Clustering:
@@ -343,7 +355,8 @@ class Clustering:
 
         # 4. Sort the ordered collection of distances and indices from
         # smallest to largest (in ascending order) by the distances
-        sorted_neighbor_distances = reverse_sorted_dict(neighbor_distances, reverse=False)
+        sorted_neighbor_distances = reverse_sorted_dict(
+            neighbor_distances, reverse=False)
 
         # 5. Pick the first K entries from the sorted collection
         first_k_keys = list(sorted_neighbor_distances.keys())[:k]
@@ -369,12 +382,12 @@ class Clustering:
             test = self.p3.docs.iloc[test_ids]
             for id in test['id']:
                 # self.p3.docs.iloc[id]['i_cat'] = self.knn_iteration(train_ids, id, k=k)
-                test['i_cat'][id] = self.knn_iteration(
+                test.iloc[id]['i_cat'] = self.knn_iteration(
                     self.p3, self.p3, train['id'], id, k=k)
             k_scores[k] = len(
                 test[test['topic'] == test['i_cat']])
-            
-            test.to_excel("learning" + str(k) + ".xlsx")
+
+            # test.to_excel("learning" + str(k) + ".xlsx")
             test['i_cat'] = ''
 
         self.k = max(k_scores, key=k_scores.get)
@@ -385,7 +398,7 @@ class Clustering:
             self.p2.docs['i_cat'][id] = self.knn_iteration(self.p3, self.p2,
                                                            self.p3.docs['id'], id, self.k)
         self.p2.docs.to_excel("phase2_knn.xlsx")
-        self.p2.save("phase2_knn.pickle")
+        # self.p2.save("phase2_knn.pickle")
 
 
 def main():
@@ -422,16 +435,21 @@ def main():
 
 
 def main_2():
-    length = 200
+    length = 'm'
     data1 = pd.read_excel("data/phase3/1.xlsx")
     data2 = pd.read_excel("data/phase3/2.xlsx")
     data3 = pd.read_excel("data/phase3/3.xlsx")
 
     data = pd.concat([data1, data2, data3])
     p3 = Processing(data, length=length, has_champion=False)
+    with open("processing_p3.pkl", 'wb') as output:  # Overwrites any existing file.
+        pickle.dump(p3, output, pickle.HIGHEST_PROTOCOL)
+    # p3.save("p3_processed.xlsx")
 
     data = pd.read_excel("data/phase2/data.xlsx")
     p2 = Processing(data, length=length, has_champion=False)
+    with open("processing_p2.pkl", 'wb') as output:  # Overwrites any existing file.
+        pickle.dump(p2, output, pickle.HIGHEST_PROTOCOL)
 
     c = Clustering(p3=p3, p2=p2)
 
@@ -440,5 +458,26 @@ def main_2():
     print(c.k)
 
 
+def main_3():
+    length = 'm'
+    # data = pd.read_excel("p2_processed.xlsx")
+    with open('processing_p3.pkl', 'rb') as ipt:
+        p3 = pickle.load(ipt)
+
+    with open('processing_p2.pkl', 'rb') as ipt:
+        p2 = pickle.load(ipt)
+
+    # data_2 = pd.read_excel("p3_prcoessed.xlsx")
+    # p3 = Processing(None, length=length, has_champion=False, load=True, load_addr="p3_processed.xlsx")
+
+    c = Clustering(p3=p3, p2=p2)
+
+    c.knn_learning()
+    c.knn_classification()
+
+    with open("clustering.pkl", "wb") as output:
+        pickle.dump(c, output, pickle.HIGHEST_PROTOCOL)
+
+
 if __name__ == "__main__":
-    main_2()
+    main_3()
