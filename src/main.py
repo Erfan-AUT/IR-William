@@ -87,6 +87,7 @@ class Processing:
 
         if load:
             self.docs = pd.read_excel(load_addr)
+            self.docs['idx'] = dict(self.docs['idx'])
             # self.docs = pd.read_pickle(load_addr)
         else:
             self.docs = docs
@@ -133,6 +134,10 @@ class Processing:
             self.gen_champion_list()
             print("--- %s seconds ---" % (time.time() - start_time))
 
+    def gen_pos_doc_idx(self, content: str):
+        tokens = self.doc_tokens(content, list)
+        return {token: (tokens.count(token), list(self.find_all(content, token))) for token in tokens}
+
     def gen_doc_idx(self, content):
         tokens = self.doc_tokens(content, list)
         return {token: tokens.count(token) for token in tokens}
@@ -159,6 +164,22 @@ class Processing:
 
     def tokenize(self, text: str, tokens_type: type):
         return tokens_type(text.split())
+
+    def find_all(self, a_str, sub):
+        start = 0
+        while True:
+            start = a_str.find(sub, start)
+            if start == -1: return
+            yield start
+            start += len(sub) # use start += 1 to find overlapping matches
+
+    def create_pos_inv_idx(self):
+        inv_idx = {token: dict() for token in self.tokens}
+        for id, _, _, idx, _, _ in self.docs.itertuples(index=False):
+            for key, value in idx.items():
+                inv_idx[key][id] = (self.tf(value[0]), value[1])
+            self.doc_lengths[id] = self.gen_doc_length(idx)
+        self.inv_idx = inv_idx
 
     # Save term frequency in inverse index
     def create_inv_idx(self):
@@ -205,14 +226,18 @@ class Processing:
         return self.tf_idf(q_word, self.docs['idx'][id]) / self.doc_lengths[id]
 
     def doc_tf_idf(self, term: str, id1: int, id2: int, p1, p2):
-        return self.idf(term) * p1.docs.iloc[id1]['idx'][term] * p2.docs.iloc[id2]['idx'][term]
+        try:
+            return self.idf(term) * p1.docs.loc[p1.docs['id'] == id1]['idx'].values[0][term] * p2.docs.loc[p2.docs['id'] == id2]['idx'].values[0][term]
+        except:
+            return 0
 
     def clean_up_idx(self, p, id):
         p.docs['idx'][id] = ast.literal_eval(re.search('({.+})', str(p.docs['idx'][id])).group(0))
 
     def doc_cos_similarity(self, id1: int, id2: int, p1, p2):
-        k1 = set(p1.docs.iloc[id1]['idx'].keys())
-        k2 = set(p1.docs.iloc[id2]['idx'].keys())
+        k1 = set(p1.docs.loc[p1.docs['id'] == id1]['idx'].values[0].keys())
+        k2 = set(p2.docs.loc[p2.docs['id'] == id2]['idx'].values[0].keys())
+        # k2 = set(p1.docs.iloc[id2]['idx'].keys())
         keys = k1 & k2
         return sum([self.doc_tf_idf(k, id1, id2, p1, p2) for k in keys]) / (p1.doc_lengths[id1] * p2.doc_lengths[id2]) + 1
 
@@ -239,10 +264,11 @@ class Processing:
             score, id = heappop(heap)
             worst[id] = score
 
-        return reverse_sorted_dict(worst)
+        return worst
 
     def best_k_sort(self, k: int):
-        return reverse_sorted_dict(self.scores)[:k]
+        r_sorted = reverse_sorted_dict(self.scores)
+        return {key:value for key, value in list(r_sorted.items())[:k]}
 
     def best_k(self, k: int, heap_or_sort=True):
         if heap_or_sort:
@@ -365,7 +391,7 @@ class Clustering:
         # k_nearest_distances = sorted_neighbor_distances[:k]
 
         # 6. Get the labels of the selected K entries
-        k_nearest_labels = [self.p3.docs['topic'][i]
+        k_nearest_labels = [self.p3.docs['topic'].loc[self.p3.docs['id'] == i].values[0]
                             for i in k_nearest_distances.keys()]
 
         # 7. If regression (choice_fn = mean), return the average of the K labels
@@ -378,8 +404,9 @@ class Clustering:
         k = 0
         for train_ids, test_ids in k_fold.split(self.p3.docs):
             k += 1
-            train = self.p3.docs.iloc[train_ids]
-            test = self.p3.docs.iloc[test_ids]
+            train = self.p3.docs.loc[self.p3.docs['id'] == train_ids]
+            test = self.p3.docs.loc[self.p3.docs['id'] == test_ids]
+            # test = self.p3.docs.iloc[test_ids]
             for id in test['id']:
                 # self.p3.docs.iloc[id]['i_cat'] = self.knn_iteration(train_ids, id, k=k)
                 test.iloc[id]['i_cat'] = self.knn_iteration(
@@ -459,10 +486,13 @@ def main_2():
 
 
 def main_3():
-    length = 'm'
-    # data = pd.read_excel("p2_processed.xlsx")
-    with open('processing_p3.pkl', 'rb') as ipt:
-        p3 = pickle.load(ipt)
+    length = 1000
+    data1 = pd.read_excel("data/phase3/1.xlsx")
+    data2 = pd.read_excel("data/phase3/2.xlsx")
+    data3 = pd.read_excel("data/phase3/3.xlsx")
+
+    data = pd.concat([data1, data2, data3])
+    p3 = Processing(data, length=length, has_champion=False)
 
     with open('processing_p2.pkl', 'rb') as ipt:
         p2 = pickle.load(ipt)
@@ -472,11 +502,114 @@ def main_3():
 
     c = Clustering(p3=p3, p2=p2)
 
-    c.knn_learning()
+    # c.knn_learning()
+    c.k = 7
     c.knn_classification()
 
     with open("clustering.pkl", "wb") as output:
         pickle.dump(c, output, pickle.HIGHEST_PROTOCOL)
+
+
+def main_4():
+    with open('processing_p2.pkl', 'rb') as ipt:
+        p2: Processing = pickle.load(ipt)
+    
+    while(True):
+        in_str = input("Enter your query, !q to exit \n")
+        if in_str == "!q":
+            break
+        in_str = in_str.replace(half_space, ' ')
+        if len(in_str.split()) == 1:
+            ids = p2.single_query(in_str)
+        else:
+            ids = p2.multi_query(in_str)
+        
+        counter = 0
+        for i in ids:
+            print([i+1, p2.docs.iloc[i]["url"]])
+            counter += 1
+            if counter > 10:
+                break
+
+def main_5():
+
+    data = pd.read_excel("data/phase2/data.xlsx")
+
+    p = Processing(data, has_champion=True)
+
+    # with open('processing_p2.pkl', 'rb') as ipt:
+    #     p: Processing = pickle.load(ipt)
+
+    while(True):
+        in_str = input("Enter your query, !q to exit \n")
+        if in_str == "!q":
+            break
+        in_str = in_str.replace(half_space, ' ')
+
+        start_time = time.time()
+
+        p.gen_scores(in_str)
+        k = min(5, len(p.scores))
+        print("The documents with the best scores are in this order (add +1 to the ids):")
+        best_k = p.best_k(k, heap_or_sort=False)
+        for id, score in best_k.items():
+            print(f"Document {id} with url {p.docs.iloc[id]['url']} and score {score}")
+        # print(p.best_k(k, heap_or_sort=True))
+        print("Querying took:")
+        print("--- %s seconds ---" % (time.time() - start_time))
+
+#For searching between the categorized data
+def main_6():
+    data = pd.read_excel("phase2_knn.xlsx")
+
+    cat = input("enter category")
+    data = data.loc[data['id_cat'] == cat]
+
+    p = Processing(data, has_champion=True)
+
+    while(True):
+        in_str = input("Enter your query, !q to exit \n")
+        if in_str == "!q":
+            break
+        in_str = in_str.replace(half_space, ' ')
+
+        start_time = time.time()
+
+        p.gen_scores(in_str)
+        k = min(5, len(p.scores))
+        print("The documents with the best scores are in this order (add +1 to the ids):")
+        best_k = p.best_k(k, heap_or_sort=False)
+        for id, score in best_k.items():
+            print(f"Document {id} with url {p.docs.iloc[id]['url']} and score {score}")
+        # print(p.best_k(k, heap_or_sort=True))
+        print("Querying took:")
+        print("--- %s seconds ---" % (time.time() - start_time))
+
+# For searching after using k_means clustering
+def main_7():
+    data = pd.read_excel("p3_processed.xlsx")
+
+    p = Processing(data, has_champion=True)
+    c = Clustering(p)
+
+    c.k_means()
+
+    while(True):
+        in_str = input("Enter your query, !q to exit \n")
+        if in_str == "!q":
+            break
+
+        start_time = time.time()
+        
+        scores = c.query_k_means(in_str)
+        # p3.gen_scores(in_str)
+        k = min(5, len(scores))
+        print("The documents with the best scores are in this order (add +1 to the ids):")
+        print(p3.best_k(k, heap_or_sort=True))
+        print("Querying took:")
+        print("--- %s seconds ---" % (time.time() - start_time))
+
+
 
 
 if __name__ == "__main__":
